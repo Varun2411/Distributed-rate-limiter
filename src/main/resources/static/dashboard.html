@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Rate Limiter Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f4f4f2;
+    --surface: #ffffff;
+    --surface-2: #f9f9f8;
+    --border: #e2e2de;
+    --text: #1a1a18;
+    --text-muted: #888780;
+    --green: #1D9E75;
+    --green-bg: #E1F5EE;
+    --green-text: #0F6E56;
+    --red: #E24B4A;
+    --red-bg: #FCEBEB;
+    --red-text: #A32D2D;
+    --blue: #378ADD;
+    --blue-bg: #E6F1FB;
+    --blue-text: #185FA5;
+    --radius: 8px;
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 24px; }
+
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+  header h1 { font-size: 18px; font-weight: 500; }
+  .status-pill { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-muted); background: var(--surface); border: 0.5px solid var(--border); border-radius: 20px; padding: 4px 12px; }
+  .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+
+  .card { background: var(--surface); border: 0.5px solid var(--border); border-radius: 12px; padding: 16px 20px; }
+  .metric-label { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .metric-value { font-size: 28px; font-weight: 500; }
+  .metric-value.green { color: var(--green); }
+  .metric-value.red { color: var(--red); }
+  .metric-value.blue { color: var(--blue); }
+
+  .card-title { font-size: 13px; font-weight: 500; color: var(--text-muted); margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.04em; }
+
+  .token-bar-track { height: 10px; background: var(--bg); border-radius: 5px; overflow: hidden; margin: 10px 0 6px; }
+  .token-bar-fill { height: 100%; border-radius: 5px; background: var(--green); transition: width 0.5s ease, background 0.3s; }
+  .token-bar-fill.low { background: var(--red); }
+  .token-bar-label { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); }
+
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
+  select, input { font-size: 13px; padding: 7px 10px; border-radius: var(--radius); border: 0.5px solid var(--border); background: var(--surface); color: var(--text); outline: none; }
+  select:focus, input:focus { border-color: var(--blue); }
+  .btn { font-size: 13px; padding: 7px 16px; border-radius: var(--radius); border: 0.5px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; transition: background 0.15s; font-weight: 500; }
+  .btn:hover { background: var(--bg); }
+  .btn.primary { background: var(--blue); color: #fff; border-color: var(--blue); }
+  .btn.primary:hover { background: #185FA5; }
+  .btn.danger { background: var(--red); color: #fff; border-color: var(--red); }
+  .btn.danger:hover { background: #A32D2D; }
+  .btn.ghost { background: transparent; border-color: transparent; color: var(--text-muted); }
+  .btn.ghost:hover { background: var(--bg); }
+
+  .instance-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .dot-8080 { background: var(--blue); }
+  .dot-8081 { background: var(--green); }
+  .inst-label { font-size: 13px; width: 72px; flex-shrink: 0; }
+  .inst-track { flex: 1; height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; }
+  .inst-fill { height: 100%; border-radius: 4px; transition: width 0.4s ease; }
+  .fill-blue { background: var(--blue); }
+  .fill-green { background: var(--green); }
+  .inst-count { font-size: 12px; color: var(--text-muted); width: 28px; text-align: right; }
+
+  .log-wrap { max-height: 220px; overflow-y: auto; }
+  .log-entry { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 0.5px solid var(--border); font-size: 13px; }
+  .log-entry:last-child { border-bottom: none; }
+  .badge { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 4px; flex-shrink: 0; min-width: 52px; text-align: center; }
+  .badge.ok { background: var(--green-bg); color: var(--green-text); }
+  .badge.err { background: var(--red-bg); color: var(--red-text); }
+  .log-info { flex: 1; color: var(--text-muted); font-size: 12px; }
+  .log-time { color: var(--text-muted); font-size: 11px; }
+  .log-empty { font-size: 13px; color: var(--text-muted); padding: 20px 0; text-align: center; }
+
+  .chart-wrap { position: relative; height: 180px; }
+  .algo-badge { font-size: 11px; padding: 3px 10px; border-radius: 20px; background: var(--blue-bg); color: var(--blue-text); font-weight: 500; display: inline-block; margin-left: 8px; }
+
+  .error-banner { background: var(--red-bg); border: 0.5px solid #F09595; border-radius: var(--radius); padding: 10px 14px; font-size: 13px; color: var(--red-text); margin-bottom: 12px; display: none; }
+  .cors-hint { font-size: 12px; margin-top: 4px; opacity: 0.8; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Rate Limiter Dashboard <span class="algo-badge" id="algo-badge">tokenBucket</span></h1>
+  </div>
+  <div class="status-pill">
+    <div class="pulse"></div>
+    <span id="uptime">00:00</span>
+  </div>
+</header>
+
+<div class="error-banner" id="err-banner">
+  Could not reach Spring Boot API. Make sure both instances are running.
+  <div class="cors-hint">Tip: open browser console (F12) for details. If you see a CORS error, add <code>@CrossOrigin</code> to your controller.</div>
+</div>
+
+<div class="controls">
+  <input id="userId" value="test123" placeholder="userId" style="width:120px"/>
+  <select id="algo" onchange="refreshRealStats(); document.getElementById('algo-badge').textContent = this.value;">
+    <option value="tokenBucket">Token bucket</option>
+    <option value="slidingWindow">Sliding window</option>
+  </select>
+  <select id="instance">
+    <option value="both">Both instances</option>
+    <option value="8080">Port 8080 only</option>
+    <option value="8081">Port 8081 only</option>
+  </select>
+  <button class="btn primary" onclick="fireRequests(5)">Send 5</button>
+  <button class="btn danger" onclick="fireRequests(15)">Spam 15</button>
+  <button class="btn ghost" onclick="resetAll()">Reset</button>
+</div>
+
+<div class="grid-4">
+  <div class="card">
+    <div class="metric-label">Total</div>
+    <div class="metric-value" id="m-total">0</div>
+  </div>
+  <div class="card">
+    <div class="metric-label">Allowed</div>
+    <div class="metric-value green" id="m-allowed">0</div>
+  </div>
+  <div class="card">
+    <div class="metric-label">Blocked 429</div>
+    <div class="metric-value red" id="m-blocked">0</div>
+  </div>
+  <div class="card">
+    <div class="metric-label">Success rate</div>
+    <div class="metric-value blue" id="m-rate">—</div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:16px;" id="token-card">
+  <div class="card-title" id="live-stat-title">Token bucket — shared Redis state</div>
+  <div class="token-bar-track"><div class="token-bar-fill" id="token-bar" style="width:100%"></div></div>
+  <div class="token-bar-label"><span id="token-val">10 / 10 tokens</span><span id="token-refill" style="color:var(--green-text)">live from Redis</span></div>
+</div>
+
+<div class="grid-2">
+  <div class="card">
+    <div class="card-title">Requests per instance</div>
+    <div class="instance-row">
+      <div class="dot dot-8080"></div>
+      <div class="inst-label" style="font-size:13px;">Port 8080</div>
+      <div class="inst-track"><div class="inst-fill fill-blue" id="bar-8080" style="width:0%"></div></div>
+      <div class="inst-count" id="cnt-8080">0</div>
+    </div>
+    <div class="instance-row">
+      <div class="dot dot-8081"></div>
+      <div class="inst-label" style="font-size:13px;">Port 8081</div>
+      <div class="inst-track"><div class="inst-fill fill-green" id="bar-8081" style="width:0%"></div></div>
+      <div class="inst-count" id="cnt-8081">0</div>
+    </div>
+    <div style="margin-top:12px; font-size:12px; color:var(--text-muted);">Both share one Redis token counter — distributed state proven.</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Request history</div>
+    <div class="chart-wrap">
+      <canvas id="chart"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Live request log</div>
+  <div class="log-wrap" id="log">
+    <div class="log-empty">No requests yet — hit "Send 5" to start</div>
+  </div>
+</div>
+
+<script>
+const BASE_URLS = { '8080': 'http://localhost:8080', '8081': 'http://localhost:8081' };
+let state = { total:0, allowed:0, blocked:0, cnt8080:0, cnt8081:0, history:[], tokens:10, startTime: Date.now() };
+const CAPACITY = 10;
+let chartData = { labels: [], allowed: [], blocked: [] };
+let chart;
+
+window.addEventListener('load', () => {
+  const ctx = document.getElementById('chart').getContext('2d');
+  chart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: chartData.labels,
+      datasets: [
+        { label: 'Allowed', data: chartData.allowed, backgroundColor: '#1D9E75', borderRadius: 3, borderSkipped: false },
+        { label: 'Blocked', data: chartData.blocked, backgroundColor: '#E24B4A', borderRadius: 3, borderSkipped: false }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 }, color: '#888780' } },
+        y: { stacked: true, grid: { color: '#e2e2de' }, ticks: { font: { size: 11 }, color: '#888780', stepSize: 1 } }
+      }
+    }
+  });
+});
+
+async function callAPI(port, userId, algo) {
+  const url = `${BASE_URLS[port]}/check?userId=${userId}`;
+  const res = await fetch(url, { headers: { 'X-Algorithm': algo } });
+  return { status: res.status, port, ok: res.status === 200 };
+}
+
+// SLIDING_WINDOW_MAX must match MAX_REQUESTS in SlidingWindowStrategy.java
+const SLIDING_WINDOW_MAX = 10;
+
+async function refreshRealStats() {
+  const userId = document.getElementById('userId').value || 'test123';
+  const algo = document.getElementById('algo').value;
+  const titleEl = document.getElementById('live-stat-title');
+  const bar = document.getElementById('token-bar');
+  const valEl = document.getElementById('token-val');
+
+  try {
+    if (algo === 'tokenBucket') {
+      titleEl.textContent = 'Token bucket — shared Redis state';
+      const res = await fetch(`${BASE_URLS['8080']}/tokens?userId=${userId}`);
+      const tokens = await res.json();
+      const pct = Math.max(0, Math.min(100, (tokens / CAPACITY) * 100));
+      bar.style.width = pct.toFixed(0) + '%';
+      bar.className = 'token-bar-fill' + (pct < 20 ? ' low' : '');
+      valEl.textContent = Number(tokens).toFixed(2) + ' / ' + CAPACITY + ' tokens remaining (live from Redis)';
+    } else {
+      titleEl.textContent = 'Sliding window — requests in last 60s (Redis)';
+      const res = await fetch(`${BASE_URLS['8080']}/window-count?userId=${userId}`);
+      const count = await res.json();
+      const pct = Math.max(0, Math.min(100, (count / SLIDING_WINDOW_MAX) * 100));
+      bar.style.width = pct.toFixed(0) + '%';
+      bar.className = 'token-bar-fill' + (pct > 80 ? ' low' : '');
+      valEl.textContent = count + ' / ' + SLIDING_WINDOW_MAX + ' requests in window (live from Redis)';
+    }
+  } catch(e) {
+    // API not reachable yet, ignore until next poll
+  }
+}
+
+async function fireRequests(n) {
+  const userId = document.getElementById('userId').value || 'test123';
+  const algo = document.getElementById('algo').value;
+  const inst = document.getElementById('instance').value;
+  document.getElementById('err-banner').style.display = 'none';
+  document.getElementById('algo-badge').textContent = algo;
+
+  const batchAllowed = [];
+  const batchBlocked = [];
+  const now = new Date();
+  const label = now.getHours() + ':' + String(now.getMinutes()).padStart(2,'0') + ':' + String(now.getSeconds()).padStart(2,'0');
+
+  for (let i = 0; i < n; i++) {
+    await new Promise(r => setTimeout(r, 100));
+    const port = inst === 'both' ? (Math.random() > 0.5 ? '8080' : '8081') : inst;
+    try {
+      const result = await callAPI(port, userId, algo);
+      state.total++;
+      if (result.ok) { state.allowed++; batchAllowed.push(1); }
+      else { state.blocked++; batchBlocked.push(1); }
+      if (port === '8080') state.cnt8080++; else state.cnt8081++;
+      state.history.unshift({ ok: result.ok, port, algo, userId, time: new Date().toLocaleTimeString() });
+      if (state.history.length > 50) state.history.pop();
+      updateUI();
+    } catch(e) {
+      document.getElementById('err-banner').style.display = 'block';
+    }
+  }
+
+  if (batchAllowed.length + batchBlocked.length > 0) {
+    chartData.labels.push(label);
+    chartData.allowed.push(batchAllowed.length);
+    chartData.blocked.push(batchBlocked.length);
+    if (chartData.labels.length > 10) {
+      chartData.labels.shift(); chartData.allowed.shift(); chartData.blocked.shift();
+    }
+    chart.update();
+  }
+}
+
+function resetAll() {
+  state = { total:0, allowed:0, blocked:0, cnt8080:0, cnt8081:0, history:[], tokens:10, startTime: Date.now() };
+  chartData = { labels: [], allowed: [], blocked: [] };
+  if (chart) { chart.data.labels = []; chart.data.datasets[0].data = []; chart.data.datasets[1].data = []; chart.update(); }
+  document.getElementById('err-banner').style.display = 'none';
+  updateUI();
+}
+
+function updateUI() {
+  document.getElementById('m-total').textContent = state.total;
+  document.getElementById('m-allowed').textContent = state.allowed;
+  document.getElementById('m-blocked').textContent = state.blocked;
+  document.getElementById('m-rate').textContent = state.total > 0 ? Math.round(state.allowed / state.total * 100) + '%' : '—';
+
+  const max = Math.max(state.cnt8080, state.cnt8081, 1);
+  document.getElementById('bar-8080').style.width = (state.cnt8080 / max * 100) + '%';
+  document.getElementById('bar-8081').style.width = (state.cnt8081 / max * 100) + '%';
+  document.getElementById('cnt-8080').textContent = state.cnt8080;
+  document.getElementById('cnt-8081').textContent = state.cnt8081;
+
+  const log = document.getElementById('log');
+  if (state.history.length === 0) {
+    log.innerHTML = '<div class="log-empty">No requests yet — hit "Send 5" to start</div>';
+    return;
+  }
+  log.innerHTML = state.history.slice(0, 15).map(e => `
+    <div class="log-entry">
+      <span class="badge ${e.ok ? 'ok' : 'err'}">${e.ok ? '200 OK' : '429'}</span>
+      <span class="log-info">userId: ${e.userId} &nbsp;·&nbsp; ${e.algo} &nbsp;·&nbsp; <span style="display:inline-flex;align-items:center;gap:4px;"><span class="dot ${e.port==='8080'?'dot-8080':'dot-8081'}" style="width:6px;height:6px;display:inline-block;"></span>:${e.port}</span></span>
+      <span class="log-time">${e.time}</span>
+    </div>`).join('');
+}
+
+setInterval(() => {
+  const elapsed = Math.floor((Date.now() - state.startTime) / 1000);
+  const m = String(Math.floor(elapsed/60)).padStart(2,'0');
+  const s = String(elapsed % 60).padStart(2,'0');
+  document.getElementById('uptime').textContent = m + ':' + s;
+}, 1000);
+
+setInterval(refreshRealStats, 1000);
+refreshRealStats();
+updateUI();
+</script>
+</body>
+</html>
