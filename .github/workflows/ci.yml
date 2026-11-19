@@ -3,14 +3,18 @@ name: CI
 on: push
 
 jobs:
-  hello:
+  test:
     runs-on: ubuntu-latest
     steps:
       - name: Get my code
         uses: actions/checkout@v4
 
-      - name: Say hello
-        run: echo "Hello from GitHub Actions"
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
 
-      - name: Show my files
-        run: ls -la
+      - name: Run tests
+        run: mvn -B test
