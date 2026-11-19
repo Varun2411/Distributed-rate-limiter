@@ -18,3 +18,16 @@ jobs:
 
       - name: Run tests
         run: mvn -B test
+
+  docker-build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get my code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t rate-limiter .
+
+      - name: Show the image
+        run: docker images
